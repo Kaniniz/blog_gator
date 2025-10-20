@@ -1,0 +1,3 @@
+postgres://postgres:postgres@localhost:5432/gator
+
+postgres://postgres:gator@localhost:5432/gator
