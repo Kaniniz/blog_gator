@@ -48,29 +48,6 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
-const createUsersTable = `-- name: CreateUsersTable :exec
-CREATE TABLE users (
-	id UUID PRIMARY KEY,
-	created_at TIMESTAMP NOT NULL,
-	updated_at TIMESTAMP NOT NULL,
-	name TEXT UNIQUE
-)
-`
-
-func (q *Queries) CreateUsersTable(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, createUsersTable)
-	return err
-}
-
-const dropUsers = `-- name: DropUsers :exec
-DROP TABLE users
-`
-
-func (q *Queries) DropUsers(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, dropUsers)
-	return err
-}
-
 const getUser = `-- name: GetUser :one
 SELECT id, created_at, updated_at, name FROM users 
 WHERE name = $1
@@ -78,6 +55,23 @@ WHERE name = $1
 
 func (q *Queries) GetUser(ctx context.Context, name sql.NullString) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, name)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Name,
+	)
+	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, created_at, updated_at, name from users
+WHERE ID = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -118,4 +112,13 @@ func (q *Queries) GetUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetUsers = `-- name: ResetUsers :exec
+DELETE FROM users
+`
+
+func (q *Queries) ResetUsers(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, resetUsers)
+	return err
 }

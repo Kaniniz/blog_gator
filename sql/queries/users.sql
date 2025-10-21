@@ -12,16 +12,12 @@ RETURNING *;
 SELECT * FROM users 
 WHERE name = $1;
 
--- name: DropUsers :exec
-DROP TABLE users;
-
--- name: CreateUsersTable :exec
-CREATE TABLE users (
-	id UUID PRIMARY KEY,
-	created_at TIMESTAMP NOT NULL,
-	updated_at TIMESTAMP NOT NULL,
-	name TEXT UNIQUE
-);
+-- name: ResetUsers :exec
+DELETE FROM users;
 
 -- name: GetUsers :many
 SELECT * FROM users;
+
+-- name: GetUserByID :one
+SELECT * from users
+WHERE ID = $1;

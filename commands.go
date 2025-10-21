@@ -71,11 +71,7 @@ func handlerRegister(s *state, cmd command) error {
 }
 
 func handlerResetUsers(s *state, cmd command) error {
-	err := s.db.DropUsers(context.Background())
-	if err != nil {
-		return err
-	}
-	err = s.db.CreateUsersTable(context.Background())
+	err := s.db.ResetUsers(context.Background())
 	if err != nil {
 		return err
 	}
@@ -117,6 +113,73 @@ func handlerAgg(s *state, cmd command) error {
 		html.UnescapeString(item.Description))
 	}
 
+	return nil
+}
+
+func handlerAddFeed(s *state, cmd command) error {
+	if len(cmd.arguments) < 2 {
+		return errors.New("Must have specify blog name and blog url")
+	}
+
+	current_time := time.Now()
+	name := sql.NullString{
+		String: s.config.CurrentUserName,
+		Valid: true,
+	}
+	
+	user, err := s.db.GetUser(context.Background(), name)
+	if err != nil {
+		return err
+	}
+
+	//why the hells does the sqlc generate require sql.Nullstrings? This is getting annoying
+	feed_name := sql.NullString{
+		String: cmd.arguments[0],
+		Valid: true,
+	}
+	feed_url := sql.NullString{
+		String: cmd.arguments[1],
+		Valid: true,
+	}
+	null_uuid := uuid.NullUUID {
+		UUID: user.ID,
+		Valid: true,
+	}
+	feed, err := s.db.AddFeed(context.Background(), 
+		database.AddFeedParams{
+				ID: uuid.New(),
+				CreatedAt: current_time,
+				UpdatedAt: current_time,
+				Name: feed_name,
+				Url: feed_url,
+				UserID: null_uuid,
+			},
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Feed added: %s\nUrl: %s\n",
+				feed.Name.String,
+				feed.Url.String,
+			)
+	return nil
+}
+
+func handlerFeeds(s *state, cmd command) error {
+	feeds, err := s.db.GetFeeds(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, feed := range feeds {
+		user, err := s.db.GetUserByID(context.Background(), feed.UserID.UUID)
+		if err != nil {
+		return err
+		}
+		fmt.Printf("Feed: %s\nUrl: %s\nCreated by: %s\n",
+					feed.Name.String,
+					feed.Url.String,
+					user.Name.String)
+	}
 	return nil
 }
 
