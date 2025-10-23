@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"context"
 	"time"
-	"database/sql"
 	"html"
 
 	"github.com/google/uuid"
@@ -23,10 +22,7 @@ func handlerLogin(s *state, cmd command) error {
 		return errors.New("Must enter a username to login")
 	}
 
-	name := sql.NullString{
-		String: cmd.arguments[0],
-		Valid: true,
-	}
+	name := cmd.arguments[0]
 
 	user, err := s.db.GetUser(context.Background(), name)
 	if err != nil {
@@ -38,17 +34,14 @@ func handlerLogin(s *state, cmd command) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("User %v has logged in\n", user.Name.String)
+	fmt.Printf("User %v has logged in\n", user.Name)
 	return nil
 
 }
 
 func handlerRegister(s *state, cmd command) error {
 	current_time := time.Now()
-	name := sql.NullString{
-		String: cmd.arguments[0],
-		Valid: true,
-	}
+	name := cmd.arguments[0]
 
 	user, err := s.db.CreateUser(context.Background(),
 		database.CreateUserParams{
@@ -62,11 +55,11 @@ func handlerRegister(s *state, cmd command) error {
 		return err
 	}
 	
-	err = s.config.SetUser(cmd.arguments[0])
+	err = s.config.SetUser(name)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("User %v has been set\n", user.Name.String)
+	fmt.Printf("User %v has been set\n", user.Name)
 	return nil
 }
 
@@ -85,10 +78,10 @@ func handlerGetUsers(s *state, cmd command) error {
 		return err
 	}
 	for _, user := range users {
-		if user.Name.String == s.config.CurrentUserName {
-			fmt.Printf("* %s (current)\n", user.Name.String)
+		if user.Name == s.config.CurrentUserName {
+			fmt.Printf("* %s (current)\n", user.Name)
 		} else {
-			fmt.Println("*", user.Name.String)
+			fmt.Println("*", user.Name)
 		}
 	}
 	return nil
@@ -122,46 +115,41 @@ func handlerAddFeed(s *state, cmd command) error {
 	}
 
 	current_time := time.Now()
-	name := sql.NullString{
-		String: s.config.CurrentUserName,
-		Valid: true,
-	}
-	
-	user, err := s.db.GetUser(context.Background(), name)
+	user, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
 	if err != nil {
 		return err
 	}
-
-	//why the hells does the sqlc generate require sql.Nullstrings? This is getting annoying
-	feed_name := sql.NullString{
-		String: cmd.arguments[0],
-		Valid: true,
-	}
-	feed_url := sql.NullString{
-		String: cmd.arguments[1],
-		Valid: true,
-	}
-	null_uuid := uuid.NullUUID {
-		UUID: user.ID,
-		Valid: true,
-	}
+	
 	feed, err := s.db.AddFeed(context.Background(), 
 		database.AddFeedParams{
 				ID: uuid.New(),
 				CreatedAt: current_time,
 				UpdatedAt: current_time,
-				Name: feed_name,
-				Url: feed_url,
-				UserID: null_uuid,
+				Name: cmd.arguments[0],
+				Url: cmd.arguments[1],
+				UserID: user.ID,
 			},
 	)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Feed added: %s\nUrl: %s\n",
-				feed.Name.String,
-				feed.Url.String,
+				feed.Name,
+				feed.Url,
 			)
+
+	_, err = s.db.CreateFeedFollow(context.Background(), 
+				database.CreateFeedFollowParams {
+					ID: uuid.New(),
+					CreatedAt: current_time,
+					UpdatedAt: current_time,
+					UserID:	user.ID,
+					FeedID: feed.ID,
+				},
+	)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -171,15 +159,79 @@ func handlerFeeds(s *state, cmd command) error {
 		return err
 	}
 	for _, feed := range feeds {
-		user, err := s.db.GetUserByID(context.Background(), feed.UserID.UUID)
+		user, err := s.db.GetUserByID(context.Background(), feed.UserID)
 		if err != nil {
 		return err
 		}
 		fmt.Printf("Feed: %s\nUrl: %s\nCreated by: %s\n",
-					feed.Name.String,
-					feed.Url.String,
-					user.Name.String)
+					feed.Name,
+					feed.Url,
+					user.Name)
 	}
+	return nil
+}
+
+func handlerFollow(s *state, cmd command) error {
+	if len(cmd.arguments) < 1 {
+		return errors.New("Must enter a url to the feed you want to fullow")
+	}
+
+	current_time := time.Now()
+	user, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+	feed, err := s.db.GetFeedByURL(context.Background(), cmd.arguments[0])
+
+	resp, err := s.db.CreateFeedFollow(context.Background(), 
+				database.CreateFeedFollowParams {
+					ID: uuid.New(),
+					CreatedAt: current_time,
+					UpdatedAt: current_time,
+					UserID:	user.ID,
+					FeedID: feed.ID,
+				},
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Feed: %s\nUser: %s\n", resp.FeedName, resp.UserName)
+	return nil
+}
+
+func handlerFollowing(s *state, cmd command) error {
+	feeds, err := s.db.GetFeedFollowsForUser(context.Background(), s.config.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	for _, feed := range feeds {
+		fmt.Println(feed.FeedsName)
+	}
+	return nil
+}
+
+func handlerUnfollowFeed(s *state, cmd command) error {
+	if len(cmd.arguments) < 1 {
+		return errors.New("Must specify feed url to unfollow")
+	}
+	
+	user, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+	if err != nil {
+		return err
+	}
+
+	feed, err := s.db.GetFeedByURL(context.Background(), cmd.arguments[0])
+	if err != nil {
+		return err
+	}
+	
+	err = s.db.UnfollowFeed(context.Background(), 
+		database.UnfollowFeedParams{
+			UserID: user.ID,
+			FeedID: feed.ID,	
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Feed %s has been unfollowed\n", feed.Name)
 	return nil
 }
 
