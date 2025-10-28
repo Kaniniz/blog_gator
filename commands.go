@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 	"html"
+	"database/sql"
 
 	"github.com/google/uuid"
 	"github.com/Kaniniz/blog_gator/internal/database"
@@ -88,25 +89,22 @@ func handlerGetUsers(s *state, cmd command) error {
 }
 
 func handlerAgg(s *state, cmd command) error {
-	feedUrl := "https://www.wagslane.dev/index.xml"
-	rss_feed, err := rssStuff.FetchFeed(context.Background(), feedUrl)
+	if len(cmd.arguments) < 1 {
+		return errors.New("Must enter a time interval to fetch feeds.\n1m, 3m, 5m, 10m, 1h")
+	}	
+	time_between_requests, err := time.ParseDuration(cmd.arguments[0])
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("%s\n%s\n%s\n\n", 
-	html.UnescapeString(rss_feed.Channel.Title),
-	rss_feed.Channel.Link,
-	html.UnescapeString(rss_feed.Channel.Description))
-
-	for _, item := range rss_feed.Channel.Item {
-		fmt.Printf("%s\n%s\n%s\n\n", 
-		html.UnescapeString(item.Title),
-		item.Link,
-		html.UnescapeString(item.Description))
+	fmt.Println("Collecting feeds every", cmd.arguments[0])
+	ticker := time.NewTicker(time_between_requests)
+	for ; ; <-ticker.C {
+		fmt.Println("ScrapingFeeds!")
+		err = scrapeFeeds(s)
+		if err != nil {
+		return err
+		}
 	}
-
-	return nil
 }
 
 func handlerAddFeed(s *state, cmd command) error {
@@ -256,5 +254,45 @@ func (c *commands) run(s *state, cmd command) error {
 
 func (c *commands) register(name string, f func(*state, command) error) error {
 	c.handlers[name] = f
+	return nil
+}
+
+func scrapeFeeds(s *state) error {
+	feed, err := s.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return err
+	}
+	current_time := time.Now()
+	err = s.db.MarkFeedFetched(
+		context.Background(), 
+		database.MarkFeedFetchedParams{
+			LastFetchedAt: sql.NullTime{
+				Time: current_time,
+				Valid: true,
+				},
+			ID: feed.ID,
+			},
+	)
+	if err != nil {
+		return err
+	}
+
+	rss_feed, err := rssStuff.FetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s\n%s\n%s\n\n", 
+	html.UnescapeString(rss_feed.Channel.Title),
+	rss_feed.Channel.Link,
+	html.UnescapeString(rss_feed.Channel.Description))
+
+	for _, item := range rss_feed.Channel.Item {
+		fmt.Printf("%s\n%s\n%s\n\n", 
+		html.UnescapeString(item.Title),
+		item.Link,
+		html.UnescapeString(item.Description))
+	}
+
 	return nil
 }
