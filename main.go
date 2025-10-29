@@ -43,6 +43,7 @@ func main() {
 	cmds.register("follow", handlerFollow)
 	cmds.register("following", handlerFollowing)
 	cmds.register("unfollow", handlerUnfollowFeed)
+	cmds.register("browse", handlerBrowse)
 
 	if len(os.Args) < 2 {
 		fmt.Println("ERROR: No command name")

@@ -7,7 +7,9 @@ import (
 	"time"
 	"html"
 	"database/sql"
+	"strconv"
 
+	"github.com/lib/pq"
 	"github.com/google/uuid"
 	"github.com/Kaniniz/blog_gator/internal/database"
 	"github.com/Kaniniz/blog_gator/internal/rssStuff"
@@ -233,6 +235,35 @@ func handlerUnfollowFeed(s *state, cmd command) error {
 	return nil
 }
 
+func handlerBrowse (s *state, cmd command) error {
+	var post_limit int
+	var err error	
+	if len(cmd.arguments) < 1 {
+		fmt.Println("No post amount limit spcified, defaulting to 2 posts")
+		post_limit = 2
+	} else {
+		post_limit, err = strconv.Atoi(cmd.arguments[0])
+		if err != nil {
+			fmt.Println("Failed to parse spcified limit, defaulting to 2")
+			post_limit = 2
+		}
+	}
+
+	posts, err := s.db.GetPostsForUser(context.Background(), int32(post_limit))
+	if err != nil {
+		return err
+	}
+	for _, post := range posts {
+		fmt.Printf("%s\n%s\n%s\n%s\n\n",
+					html.UnescapeString(post.Title),
+					post.Url,
+					post.PublishedAt,
+					html.UnescapeString(post.Description),
+				)
+	}
+	return nil
+}
+
 type commands struct {
 	handlers map[string]func(*state, command) error
 }
@@ -282,17 +313,32 @@ func scrapeFeeds(s *state) error {
 		return err
 	}
 
-	fmt.Printf("%s\n%s\n%s\n\n", 
-	html.UnescapeString(rss_feed.Channel.Title),
-	rss_feed.Channel.Link,
-	html.UnescapeString(rss_feed.Channel.Description))
-
-	for _, item := range rss_feed.Channel.Item {
-		fmt.Printf("%s\n%s\n%s\n\n", 
-		html.UnescapeString(item.Title),
-		item.Link,
-		html.UnescapeString(item.Description))
+	for _,item := range rss_feed.Channel.Item {
+		published_at, err := time.Parse(time.RFC1123Z, item.PubDate)
+		current_time := time.Now()
+		if err != nil {
+			fmt.Println("Failed to parse published time")
+			return err
+		}
+		err = s.db.CreatePost(context.Background(),
+							  database.CreatePostParams{
+								ID: uuid.New(),
+								CreatedAt: current_time,
+								UpdatedAt: current_time,
+								Title: html.UnescapeString(item.Title),
+								Url: item.Link,
+								Description: html.UnescapeString(item.Description),
+								PublishedAt: published_at,
+								FeedID: feed.ID,
+							  },
+		)
+		if err != nil {
+			var e *pq.Error
+			if errors.As(err, &e) && e.Code == "23505" {
+				continue
+			}
+			return err
+		}
 	}
-
 	return nil
 }
